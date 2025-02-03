@@ -1,46 +1,62 @@
-import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import plotly.express as px
+import plotly.graph_objects as go
+from dash import Dash, dcc, html, dash_table
 
-# Título do Dashboard
-st.title("Dashboard de Dispersão de Carteira")
-st.write("Monitoramento da dispersão da carteira de corretores de seguros.")
+# Carregar os dados
+file_path = "DashBoard.xlsx"
+df = pd.read_excel(file_path, sheet_name="Folha1")
 
-# Upload de Arquivo
-uploaded_file = st.file_uploader("Faça o upload do arquivo Excel", type=["xlsx", "xls"])
-if uploaded_file:
-    df = pd.read_excel(uploaded_file)
-    st.write("### Visualização dos Dados:")
-    st.dataframe(df.head())
+df.columns = [
+    "Mediador", "Código Mediador", "Alínea A (Ano)", "Alínea B (Ano)", "Alínea C (Ano)", "Alínea D (Ano)",
+    "Nº 2 do Art. 48º (Ano)", "Ignorar", "Alínea A (Triênio)", "Alínea B (Triênio)", "Alínea C (Triênio)",
+    "Alínea D (Triênio)", "Nº 2 do Art. 48º (Triênio)"
+]
+df = df.iloc[1:].reset_index(drop=True)
+df = df.drop(columns=["Ignorar"])
+cols_numericas = df.columns[2:]
+df[cols_numericas] = df[cols_numericas].apply(pd.to_numeric, errors="coerce")
 
-    # Seleção de Filtros
-    corretores = df['Corretor'].unique()
-    corretor_selecionado = st.selectbox("Selecione o Corretor", corretores)
+# Criar a aplicação Dash
+app = Dash(__name__)
 
-    # Filtrar dados
-    df_filtrado = df[df['Corretor'] == corretor_selecionado]
-
-    # Gráfico de Dispersão
-    st.write("### Dispersão de Carteira")
-    fig, ax = plt.subplots()
-    sns.scatterplot(data=df_filtrado, x='Seguradora', y='% Carteira', hue='Risco', size='% Carteira', sizes=(20, 200), ax=ax)
-    plt.xticks(rotation=45)
-    plt.xlabel("Seguradoras")
-    plt.ylabel("% da Carteira")
-    plt.title(f"Dispersão da Carteira do Corretor {corretor_selecionado}")
-    st.pyplot(fig)
-
-    # Estatísticas Gerais
-    st.write("### Estatísticas Gerais")
-    st.write(df_filtrado.describe())
+app.layout = html.Div([
+    html.H1("Dashboard de Supervisão de Corretores"),
     
-    # Alertas de Incumprimento
-    st.write("### Alertas de Incumprimento")
-    limite_concentracao = 50  # Ajustável conforme regra de negócio
-    corretores_em_risco = df[df['% Carteira'] > limite_concentracao]
-    if not corretores_em_risco.empty:
-        st.warning("Corretores com alta concentração de carteira identificados!")
-        st.dataframe(corretores_em_risco[['Corretor', 'Seguradora', '% Carteira']])
-    else:
-        st.success("Nenhum corretor em risco identificado.")
+    dash_table.DataTable(
+        id='tabela-dados',
+        columns=[{"name": i, "id": i} for i in df.columns],
+        data=df.to_dict('records'),
+        page_size=10,
+        style_table={'overflowX': 'auto'},
+        style_cell={'textAlign': 'center'},
+    ),
+    
+    dcc.Graph(
+        id="grafico-dispersao-ano",
+        figure=px.scatter(df, x="Alínea A (Ano)", y="Alínea B (Ano)", 
+                          color="Mediador", title="Dispersão da Carteira (Ano)",
+                          hover_data=["Código Mediador"])
+    ),
+    
+    dcc.Graph(
+        id="grafico-dispersao-trienio",
+        figure=px.scatter(df, x="Alínea A (Triênio)", y="Alínea B (Triênio)", 
+                          color="Mediador", title="Dispersão da Carteira (Triênio)",
+                          hover_data=["Código Mediador"])
+    ),
+    
+    dcc.Graph(
+        id="grafico-incumprimento",
+        figure=go.Figure([
+            go.Bar(x=df["Mediador"], y=df["Nº 2 do Art. 48º (Ano)"], name="Ano"),
+            go.Bar(x=df["Mediador"], y=df["Nº 2 do Art. 48º (Triênio)"], name="Triênio")
+        ]).update_layout(title="Casos de Incumprimento", barmode="group")
+    ),
+    
+    html.Button("Exportar Relatório", id="botao-exportar", n_clicks=0),
+    html.Div(id="notificacoes")
+])
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
